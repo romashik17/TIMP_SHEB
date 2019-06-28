@@ -1,0 +1,314 @@
+#include <iostream>
+#include <cctype>
+#include <codecvt>
+#include <locale>
+#include "modAlphaCipher.h"
+using namespace std;
+
+void check(const string& Text, const string& key, const bool destructCipherText=false)
+{
+	try {
+		locale loc("ru_RU.UTF-8");
+		wstring_convert<codecvt_utf8<wchar_t>, wchar_t> codec;
+		string cipherText;
+		string decryptedText;
+		modAlphaCipher cipher(key);
+		cipherText = cipher.encrypt(Text);
+		cipherText = cipher.encrypt(Text);
+		if (destructCipherText) {
+			wstring ws = cipher.towstr(cipherText);
+			ws.front() = tolower(ws.front(),loc);
+			cipherText = cipher.fromwstr(ws);
+		}
+		decryptedText = cipher.decrypt(cipherText);
+		cout<<"key="<<key<<endl;
+		cout<<Text<<endl;
+		cout<<cipherText<<endl;
+		cout<<decryptedText<<endl;
+	} catch (const cipher_error & e) {
+		cerr<<"Error: "<<e.what()<<endl;
+	}
+}
+
+int main(int argc, char **argv)
+{
+	check("АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ","Супер");
+	check("АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ","");
+	check("АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ","АБВГ123");
+	check("Абвг Деёж Зиклм Нопрст Уфхцчшщ ЪыЬ Эюя","Кошка");
+	check("123","АБВГ");
+	check("АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ","СЕКРЕТНО",true);
+	return 0;
+}
+
+Заголовочный файл модифицированного модуля "шифратора":
+#pragma once
+#include <vector>
+#include <string>
+#include <codecvt>
+#include <locale>
+#include <map>
+class modAlphaCipher
+{
+private:
+	std::wstring numAlpha = L"АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ";
+	std::map <wchar_t,int> alphaNum;
+	std::vector <int> key; //ключ
+	std::vector<int> convert(const std::wstring& ws);
+	std::string convert(const std::vector<int>& v);
+	std::wstring getValidKey(const std::wstring & ws);
+	inline std::wstring getValidOpenText(const std::wstring & ws);
+	inline std::wstring getValidCipherText(const std::wstring & ws);
+public:
+	modAlphaCipher()=delete;
+	modAlphaCipher(const std::string& skey);
+	std::string encrypt(const std::string& open_text);
+	std::string decrypt(const std::string& cipher_text);
+	std::wstring towstr(const std::string& s);
+	std::string fromwstr(const std::wstring& ws);
+};
+
+class cipher_error: public std::invalid_argument
+{
+public:
+	explicit cipher_error (const std::string& what_arg):std::invalid_argument(what_arg) {}
+	explicit cipher_error (const char* what_arg):std::invalid_argument(what_arg) {}
+};
+
+Модифицированный модуль "шифратора":
+#include "modAlphaCipher.h"
+modAlphaCipher::modAlphaCipher(const std::string& skey)
+{
+	for (unsigned i=0; i<numAlpha.size(); i++) {
+		alphaNum[numAlpha[i]]=i;
+	}
+	std::wstring wskey = towstr(skey);
+	key = convert(getValidKey(wskey));;
+}
+
+std::string modAlphaCipher::encrypt(const std::string& open_text)
+{
+	std::wstring open_wtext = towstr (open_text);
+	std::vector<int> work = convert(getValidOpenText(open_wtext));
+	for(unsigned i=0; i < work.size(); i++) {
+		work[i] = (work[i] + key[i % key.size()]) % alphaNum.size();
+	}
+	return convert(work);
+}
+std::string modAlphaCipher::decrypt(const std::string& cipher_text)
+{
+	std::wstring cipher_wtext = towstr (cipher_text);
+	std::vector<int> work = convert(getValidCipherText(cipher_wtext));
+	for(unsigned i=0; i < work.size(); i++) {
+		work[i] = (work[i] + alphaNum.size() - key[i % key.size()]) % alphaNum.size();
+	}
+	return convert(work);
+}
+inline std::vector<int> modAlphaCipher::convert(const std::wstring& ws)
+{
+	std::vector<int> result;
+	for(auto wc:ws) {
+		result.push_back(alphaNum[wc]);
+	}
+	return result;
+}
+
+inline std::string modAlphaCipher::convert(const std::vector<int>& v)
+{
+	std::wstring wresult;
+	for(auto i:v) {
+		wresult.push_back(numAlpha[i]);
+	}
+	std::string result = fromwstr(wresult);
+	return result;
+}
+
+std::wstring modAlphaCipher::towstr(const std::string& s)
+{
+	std::locale loc("ru_RU.UTF-8");
+	std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> codec;
+	std::wstring ws = codec.from_bytes(s);
+	return ws;
+}
+
+std::string modAlphaCipher::fromwstr(const std::wstring& ws)
+{
+	std::locale loc("ru_RU.UTF-8");
+	std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> codec;
+	std::string s = codec.to_bytes(ws);
+	return s;
+}
+
+inline std::wstring modAlphaCipher::getValidKey(const std::wstring & ws)
+{
+	std::locale loc("ru_RU.UTF-8");
+	std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> codec;
+	if (ws.empty())
+		throw cipher_error("Empty key");
+	std::wstring tmp(ws);
+	for (auto & wc:tmp) {
+		if (!isalpha(wc, loc)) {
+			std::string s = fromwstr(ws);
+			throw cipher_error(std::string("Invalid key ")+s);
+		}
+		if (islower(wc, loc))
+			wc = toupper(wc, loc);
+	}
+	return tmp;
+}
+
+inline std::wstring modAlphaCipher::getValidOpenText (const std::wstring & ws)
+{
+	std::locale loc("ru_RU.UTF-8");
+	std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> codec;
+	std::wstring tmp;
+	for (auto wc:ws) {
+		if (isalpha(wc, loc)) {
+			if (islower(wc,loc))
+				tmp.push_back(toupper(wc,loc));
+			else
+				tmp.push_back(wc);
+		}
+	}
+	if (tmp.empty())
+		throw cipher_error("Empty open text");
+	return tmp;
+}
+
+inline std::wstring modAlphaCipher::getValidCipherText(const std::wstring & ws)
+{
+	std::locale loc("ru_RU.UTF-8");
+	std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> codec;
+	if (ws.empty())
+		throw cipher_error("Empty cipher text");
+	for (auto wc:ws) {
+		if (!isupper(wc, loc)) {
+			std::string s = fromwstr(ws);
+			throw
+			cipher_error(std::string("Invalid cipher text ")+s);
+		}
+	}
+	return ws;
+}
+
+
+
+
+
+
+Главный модуль программы:
+#include <iostream>
+#include <cctype>
+#include "Cipher.h"
+using namespace std;
+int main(int argc, char **argv)
+{
+	int key;
+	string text;
+	unsigned op;
+	do {
+		try {
+			cout<<"Input operation (0-exit, 1-encrypt, 2-decrypt): ";
+			cin>>op;
+			if (op > 2)
+				cout<<"Illegal operation\n";
+			else if (op > 0) {
+				cout<<"Input text: ";
+				cin>>text;
+				cout<<"Input key: ";
+				cin>>key;
+				Cipher cipher(key, text);
+				if (op==1) {
+					cout<<"Encrypted text: "<<cipher.encrypt(text)<<endl;
+				} else {
+					cout<<"Decrypted text: "<<cipher.decrypt(text)<<endl;
+				}
+			}
+			
+		} catch (const Error & e) {
+			cerr<<"Error: "<<e.what()<<endl;
+		}
+	} while (op != 0);
+	return 0;
+}
+
+Заголовочный файл модифицированного модуля "шифратора":
+#pragma once
+#include <string>
+#include <stdexcept>
+using namespace std;
+class Cipher
+{
+	char** value;
+	int S, D;
+	string getValidText(const string& s);
+public:
+	Cipher() = delete;
+	Cipher(int key, const string& s);
+	string encrypt(const string& open_text);
+	string decrypt(const string& cipher_text);
+	~Cipher();
+};
+class Error: public invalid_argument
+{
+public:
+	explicit Error (const string& what_arg):invalid_argument(what_arg) {}
+	explicit Error (const char* what_arg):invalid_argument(what_arg) {}
+};
+Модифицированный модуль "шифратора":
+#include "Cipher.h"
+Cipher::Cipher(int key, const string& s)
+{
+	if (key < 2 or key > getValidText(s).size())
+		throw Error(string("Invalid key"));
+	D = key;
+	S = ((getValidText(s).size() - 1)/D + 1);
+	value = new char * [S];
+	for (int i = 0; i < S; i++) {
+		value[i] = new char [D];
+	}
+}
+string Cipher::encrypt(const string& open_text)
+{
+	for (int i=0; i < S; i++)
+		for (int j=0; j < D; j++)
+			value[i][j] = '*';
+	for (int i = 0; i < getValidText(open_text).size();i++)
+		value[i/D][i%D] = getValidText(open_text)[i];
+	string cipher_text;
+	for (int i = D - 1; i >= 0; i --)
+		
+		for (int j = 0; j < S; j++)
+			cipher_text = cipher_text + value[j][i];
+	return cipher_text;
+}
+string Cipher::decrypt(const string& cipher_text)
+{
+	for (int i=0; i < S; i++)
+		for (int j=0; j < D; j++)
+			value[i][j] = '*';
+	for (int i = 0; i < getValidText(cipher_text).size(); i++)
+		value[i%S][i/S] = getValidText(cipher_text)[i];string open_text;
+	for (int i = 0; i < S; i ++)
+		for (int j = D - 1; j >= 0; j--)
+			open_text = open_text + value[i][j];
+	return open_text;
+}
+Cipher::~Cipher()
+{
+	for (int i = 0; i < S; i++) {
+		delete [] value[i];
+	}
+	delete [] value;
+}
+string Cipher::getValidText(const string& s)
+ {
+	string tmp(s);
+	if (s.empty())
+		throw Error("Empty text");
+	for (auto c:tmp)
+		if (!isalpha(c)) {
+			throw Error(string("Invalid text"));
+		}
+	return tmp;
+}
